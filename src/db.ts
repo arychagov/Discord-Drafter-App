@@ -41,6 +41,9 @@ export async function initSchema(): Promise<void> {
       title TEXT NOT NULL,
       status TEXT NOT NULL, -- collecting | finished | stopped
       seed TEXT,
+      generation_count INTEGER NOT NULL DEFAULT 0,
+      roster_version INTEGER NOT NULL DEFAULT 0,
+      last_draft_roster_version INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -58,5 +61,12 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS draft_slots_draft_id_user_id_idx
       ON draft_slots(draft_id, user_id);
   `);
+
+  // Schema migrations for existing installations
+  await p.query(`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS generation_count INTEGER NOT NULL DEFAULT 0;`);
+  await p.query(`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS roster_version INTEGER NOT NULL DEFAULT 0;`);
+  await p.query(
+    `ALTER TABLE drafts ADD COLUMN IF NOT EXISTS last_draft_roster_version INTEGER NOT NULL DEFAULT 0;`
+  );
 }
 

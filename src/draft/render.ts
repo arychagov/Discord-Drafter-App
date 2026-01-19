@@ -32,8 +32,13 @@ export function parseButtonCustomId(
 export function renderEmbed(view: DraftView): EmbedBuilder {
   const { draft } = view;
   const embed = new EmbedBuilder()
-    .setTitle(draft.title || "Draft")
-    .setFooter({ text: `драфт ${draft.id}${draft.seed ? ` • seed ${draft.seed}` : ""}` });
+    .setTitle(draft.title || "Собираем игру")
+    .setFooter({
+      text:
+        draft.seed == null
+          ? "Собираем игроков"
+          : `# рандома: ${draft.generation_count}`,
+    });
 
   if (draft.status === "collecting") {
     embed.setDescription(renderPlayersBlock(view.players));

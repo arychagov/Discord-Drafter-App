@@ -11,6 +11,9 @@ export type DraftRow = {
   title: string;
   status: DraftStatus;
   seed: string | null;
+  generation_count: number;
+  roster_version: number;
+  last_draft_roster_version: number;
 };
 
 export type DraftSlotRow = {
@@ -46,7 +49,8 @@ export async function createDraft(
 
 export async function lockDraft(c: PoolClient, draftId: string): Promise<DraftRow | null> {
   const res = await c.query<DraftRow>(
-    `SELECT id, guild_id, channel_id, owner_id, title, status, seed
+    `SELECT id, guild_id, channel_id, owner_id, title, status, seed, generation_count,
+            roster_version, last_draft_roster_version
      FROM drafts
      WHERE id = $1
      FOR UPDATE`,
@@ -57,12 +61,35 @@ export async function lockDraft(c: PoolClient, draftId: string): Promise<DraftRo
 
 export async function getDraft(c: PoolClient, draftId: string): Promise<DraftRow | null> {
   const res = await c.query<DraftRow>(
-    `SELECT id, guild_id, channel_id, owner_id, title, status, seed
+    `SELECT id, guild_id, channel_id, owner_id, title, status, seed, generation_count,
+            roster_version, last_draft_roster_version
      FROM drafts
      WHERE id = $1`,
     [draftId]
   );
   return res.rows[0] ?? null;
+}
+
+export async function bumpRosterVersion(c: PoolClient, draftId: string): Promise<void> {
+  await c.query(
+    `UPDATE drafts
+     SET roster_version = roster_version + 1, updated_at = NOW()
+     WHERE id = $1`,
+    [draftId]
+  );
+}
+
+export async function setLastDraftRosterVersion(
+  c: PoolClient,
+  draftId: string,
+  rosterVersion: number
+): Promise<void> {
+  await c.query(
+    `UPDATE drafts
+     SET last_draft_roster_version = $2, updated_at = NOW()
+     WHERE id = $1`,
+    [draftId, rosterVersion]
+  );
 }
 
 export async function addSlot(
@@ -76,7 +103,7 @@ export async function addSlot(
     userId,
     team,
   ]);
-  await c.query(`UPDATE drafts SET updated_at = NOW() WHERE id = $1`, [draftId]);
+  await bumpRosterVersion(c, draftId);
 }
 
 export async function userHasAnySlot(
@@ -95,9 +122,9 @@ export async function removeOneSlotPreferTeam(
   c: PoolClient,
   draftId: string,
   userId: string
-): Promise<boolean> {
+): Promise<{ removed: boolean; removedTeam: Team | null }> {
   // Prefer removing from A/B, else from BENCH, else from NULL
-  const res = await c.query<{ id: string }>(
+  const res = await c.query<{ id: string; team: Team | null }>(
     `WITH candidate AS (
        SELECT id
        FROM draft_slots
@@ -109,14 +136,14 @@ export async function removeOneSlotPreferTeam(
      )
      DELETE FROM draft_slots
      WHERE id IN (SELECT id FROM candidate)
-     RETURNING id`,
+     RETURNING id::text as id, team`,
     [draftId, userId]
   );
   if ((res.rowCount ?? 0) > 0) {
-    await c.query(`UPDATE drafts SET updated_at = NOW() WHERE id = $1`, [draftId]);
-    return true;
+    await bumpRosterVersion(c, draftId);
+    return { removed: true, removedTeam: res.rows[0]?.team ?? null };
   }
-  return false;
+  return { removed: false, removedTeam: null };
 }
 
 export async function getTeamCounts(
@@ -150,6 +177,24 @@ export async function setStatusAndSeed(
     status,
     seed,
   ]);
+}
+
+export async function bumpGeneration(c: PoolClient, draftId: string): Promise<void> {
+  await c.query(
+    `UPDATE drafts
+     SET generation_count = generation_count + 1, updated_at = NOW()
+     WHERE id = $1`,
+    [draftId]
+  );
+}
+
+export async function resetGeneration(c: PoolClient, draftId: string): Promise<void> {
+  await c.query(
+    `UPDATE drafts
+     SET generation_count = 0, updated_at = NOW()
+     WHERE id = $1`,
+    [draftId]
+  );
 }
 
 export async function clearTeams(c: PoolClient, draftId: string): Promise<void> {
