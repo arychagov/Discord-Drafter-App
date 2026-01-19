@@ -61,6 +61,9 @@ export async function initSchema(): Promise<void> {
       ON draft_slots(draft_id, joined_at, id);
     CREATE INDEX IF NOT EXISTS draft_slots_draft_id_user_id_idx
       ON draft_slots(draft_id, user_id);
+
+    CREATE INDEX IF NOT EXISTS drafts_updated_at_idx
+      ON drafts(updated_at);
   `);
 
   // Schema migrations for existing installations
@@ -72,3 +75,13 @@ export async function initSchema(): Promise<void> {
   await p.query(`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS last_active_sig TEXT NOT NULL DEFAULT '';`);
 }
 
+export async function cleanupOldDrafts(retentionDays: number): Promise<number> {
+  const p = getPool();
+  const days = Number.isFinite(retentionDays) && retentionDays > 0 ? retentionDays : 7;
+  const res = await p.query(
+    `DELETE FROM drafts
+     WHERE updated_at < NOW() - ($1::text || ' days')::interval`,
+    [String(days)]
+  );
+  return res.rowCount ?? 0;
+}

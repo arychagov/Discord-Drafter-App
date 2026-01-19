@@ -206,6 +206,11 @@ export async function setStatusAndSeed(
   ]);
 }
 
+export async function deleteDraft(c: PoolClient, draftId: string): Promise<number> {
+  const res = await c.query(`DELETE FROM drafts WHERE id = $1`, [draftId]);
+  return res.rowCount ?? 0;
+}
+
 export async function bumpGeneration(c: PoolClient, draftId: string): Promise<void> {
   await c.query(
     `UPDATE drafts

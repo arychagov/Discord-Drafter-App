@@ -7,12 +7,13 @@ import {
 } from "discord.js";
 import { randomUUID } from "crypto";
 import { ENV } from "./env";
-import { initSchema, withTx } from "./db";
+import { cleanupOldDrafts, initSchema, withTx } from "./db";
 import {
   addSlot,
   clearTeams,
   createDraft,
   bumpGeneration,
+  deleteDraft,
   getDraftView,
   getSlotsOrdered,
   getTeamCounts,
@@ -38,6 +39,17 @@ client.once("ready", () => {
 
 client.once("ready", async () => {
   await initSchema();
+  // Periodic cleanup: delete drafts older than N days (default 7).
+  const runCleanup = async () => {
+    try {
+      const n = await cleanupOldDrafts(ENV.DRAFT_RETENTION_DAYS);
+      if (n > 0) console.log(`Cleanup: deleted ${n} old drafts.`);
+    } catch (e) {
+      console.error("Cleanup failed:", e);
+    }
+  };
+  await runCleanup();
+  setInterval(runCleanup, 24 * 60 * 60 * 1000).unref?.();
 });
 
 client.on("interactionCreate", async (interaction: Interaction) => {
@@ -181,8 +193,18 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
     if (draft.owner_id !== userId) return "Только создатель драфта может это делать.";
 
     if (parsed.action === "stop") {
-      await setStatusAndSeed(c, draftId, "stopped", draft.seed);
-      return null;
+      // We'll delete the draft from DB, but first we need a "final view" for the message.
+      const viewBefore = await getDraftView(c, draftId);
+      if (!viewBefore) return "Драфт не найден.";
+
+      const finalView = {
+        ...viewBefore,
+        draft: { ...viewBefore.draft, status: "stopped" as const },
+      };
+
+      await deleteDraft(c, draftId);
+      // Return the view so caller can update message even after DB deletion.
+      return finalView as any;
     }
 
     if (parsed.action === "finish") {
@@ -232,15 +254,24 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
     return "Неизвестное действие.";
   });
 
-  if (error) {
+  // The transaction returns either:
+  // - null: success, fetch view from DB
+  // - DraftView: special-case for stop (draft already deleted)
+  // - string: error message
+  if (typeof error === "string" && error) {
     await interaction.followUp({ content: error, ephemeral: true });
     return;
   }
 
-  const view = await withTx(async (c) => await getDraftView(c, draftId));
-  if (!view) {
-    await interaction.followUp({ content: "Драфт не найден.", ephemeral: true });
-    return;
+  let view = null as any;
+  if (error && typeof error === "object") {
+    view = error;
+  } else {
+    view = await withTx(async (c) => await getDraftView(c, draftId));
+    if (!view) {
+      await interaction.followUp({ content: "Драфт не найден.", ephemeral: true });
+      return;
+    }
   }
 
   await interaction.message.edit({

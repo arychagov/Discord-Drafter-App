@@ -14,5 +14,6 @@ export const ENV = {
   DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
   ALLOW_DUPLICATE_JOIN: process.env.ALLOW_DUPLICATE_JOIN === "true",
   DATABASE_URL: process.env.DATABASE_URL,
+  DRAFT_RETENTION_DAYS: Number(process.env.DRAFT_RETENTION_DAYS ?? "7"),
 };
 
