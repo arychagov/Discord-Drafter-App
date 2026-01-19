@@ -111,6 +111,8 @@ async function handleStart(interaction: ChatInputCommandInteraction): Promise<vo
       ownerId: interaction.user.id,
       title,
     });
+    // By default, add the author as the first participant.
+    await addSlot(c, draftId, interaction.user.id, null);
   });
 
   // Step 3: render from DB.
