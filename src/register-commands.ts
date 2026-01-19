@@ -8,6 +8,9 @@ const commands = [
     .addStringOption((opt) =>
       opt.setName("title").setDescription("Название драфта").setRequired(false)
     ),
+  new SlashCommandBuilder()
+    .setName("draft_help")
+    .setDescription("Показать справку по /draft"),
 ].map((c) => c.toJSON());
 
 async function main() {

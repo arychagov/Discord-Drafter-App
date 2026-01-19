@@ -57,6 +57,11 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "draft") {
         await handleStart(interaction);
+        return;
+      }
+      if (interaction.commandName === "draft_help") {
+        await handleHelp(interaction);
+        return;
       }
       return;
     }
@@ -142,6 +147,35 @@ async function handleStart(interaction: ChatInputCommandInteraction): Promise<vo
     embeds: [renderEmbed(view)],
     components: renderComponents(view),
   });
+}
+
+async function handleHelp(interaction: ChatInputCommandInteraction): Promise<void> {
+  const content =
+    "**/draft — справка**\n\n" +
+    "**1) Создать драфт**\n" +
+    "В нужном канале напишите команду `/draft` (можно указать название).\n" +
+    "Бот отправит сообщение драфта с кнопками `+`, `-`, `Draft!`, `Завершить`.\n\n" +
+    "**2) Вступить / выйти**\n" +
+    "Нажмите `+` — вы добавитесь в список игроков.\n" +
+    "Нажмите `-` — вы удалитесь из списка игроков.\n\n" +
+    "**3) Сделать драфт команд**\n" +
+    "Создатель драфта нажимает `Draft!`.\n" +
+    "Бот покажет две команды: **Команда A** и **Команда B**.\n" +
+    "Если игроков нечётное число — последний, кто нажал `+`, попадёт в **«На замену»**.\n\n" +
+    "**4) После драфта (когда команды уже есть)**\n" +
+    "Если игрок из команды нажимает `-`, он выходит из своей команды, а команды остаются (могут стать неравными).\n" +
+    "Если кто-то нажимает `+`:\n" +
+    "- он сразу попадёт в команду, где меньше игроков\n" +
+    "- если команды равны — попадёт в **«На замену»**\n" +
+    "Создатель драфта может нажать `Draft!` ещё раз — команды будут переразданы заново (и **«На замену»** тоже будет учтён).\n\n" +
+    "**5) Завершить драфт**\n" +
+    "Создатель драфта нажимает `Завершить`.\n" +
+    "Все кнопки отключаются, а результат остаётся видимым в сообщении.\n\n" +
+    "**Примечания**\n" +
+    "`Draft!` и `Завершить` доступны только создателю драфта.\n" +
+    "Если бот не отвечает, происходит какая-то рандомная хуйня - пиши @Wealduun.";
+
+  await interaction.reply({ content, ephemeral: true });
 }
 
 async function handleButton(interaction: ButtonInteraction): Promise<void> {

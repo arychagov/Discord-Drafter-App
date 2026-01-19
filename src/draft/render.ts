@@ -69,7 +69,7 @@ export function renderEmbed(view: DraftView): EmbedBuilder {
   // stopped without teams
   embed.setColor(0x95a5a6);
   embed.setDescription("Драфт завершён.");
-  embed.addFields([{ name: `Игроки (${view.players.length})`, value: renderPlayersBlock(view.players) }]);
+  embed.addFields([{ name: `**Игроки**`, value: renderPlayersBlock(view.players) }]);
   return embed;
 }
 
