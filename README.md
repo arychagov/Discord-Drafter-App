@@ -42,6 +42,33 @@ npm run register
 npm run dev
 ```
 
+### Деплой на DigitalOcean (Docker Compose)
+
+На droplet (Ubuntu):
+
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose
+sudo systemctl enable --now docker
+```
+
+Дальше на сервере:
+
+```bash
+git clone <your-repo>
+cd <repo>
+cp env.example .env
+nano .env
+docker-compose up -d --build
+docker-compose logs -f
+```
+
+Slash-команды (пере)регистрировать при изменениях команд:
+
+```bash
+docker-compose run --rm bot npm run register
+```
+
 ### Как работает хранение в сообщении
 
 В конце draft-сообщения бот хранит JSON в блоке:
