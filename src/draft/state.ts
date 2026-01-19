@@ -3,24 +3,27 @@ import { DraftStateV1 } from "./types";
 const STATE_BLOCK_LANG = "DRAFT_STATE";
 // State block may be wrapped in spoiler markers (||...||) to hide it in UI.
 const STATE_RE = /(\|\|)?```DRAFT_STATE\s*\n([\s\S]*?)\n```(\|\|)?/m;
+const STATE_RE_GLOBAL = /(\|\|)?```DRAFT_STATE\s*\n([\s\S]*?)\n```(\|\|)?/gm;
 
 export function extractDraftState(content: string): DraftStateV1 | null {
-  const m = content.match(STATE_RE);
-  if (!m) return null;
-  try {
-    const parsed = JSON.parse(m[2]) as DraftStateV1;
-    if (!parsed || parsed.v !== 1) return null;
-    return parsed;
-  } catch {
-    return null;
+  // If multiple blocks exist (e.g. due to legacy formatting), take the last valid one.
+  let last: DraftStateV1 | null = null;
+  for (const m of content.matchAll(STATE_RE_GLOBAL)) {
+    try {
+      const parsed = JSON.parse(m[2]) as DraftStateV1;
+      if (parsed && parsed.v === 1) last = parsed;
+    } catch {
+      // ignore
+    }
   }
+  return last;
 }
 
 export function upsertDraftStateBlock(content: string, state: DraftStateV1): string {
   const nextBlock = formatStateBlock(state);
-  if (STATE_RE.test(content)) return content.replace(STATE_RE, nextBlock);
-  const trimmed = content.trim();
-  return trimmed.length ? `${trimmed}\n\n${nextBlock}` : nextBlock;
+  // Ensure we keep exactly ONE block in the message to avoid split-brain behavior.
+  const withoutAll = content.replace(STATE_RE_GLOBAL, "").trim();
+  return withoutAll.length ? `${withoutAll}\n\n${nextBlock}` : nextBlock;
 }
 
 export function formatStateBlock(state: DraftStateV1): string {
