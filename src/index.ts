@@ -18,11 +18,11 @@ import {
   getTeamCounts,
   lockDraft,
   removeOneSlotPreferTeam,
-  resetGeneration,
-  setLastDraftRosterVersion,
   setNullTeamForNotIn,
   setStatusAndSeed,
   setTeamForIds,
+  setGenerationCount,
+  setLastActiveSig,
   userHasAnySlot,
 } from "./draft/db";
 import { parseButtonCustomId, renderComponents, renderEmbed } from "./draft/render";
@@ -190,16 +190,12 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       const slots = await getSlotsOrdered(c, draftId);
       if (slots.length < 2) return "Нужно минимум 2 игрока.";
 
-      // If roster changed since the last draft, reset generation counter (so the next draft is generation: 1).
-      if (draft.roster_version !== draft.last_draft_roster_version) {
-        await resetGeneration(c, draftId);
-      }
+      // Determine the new "active roster" (Team A ∪ Team B) signature AFTER this draft.
+      // If it differs from the previous active roster signature, reset generation counter.
 
       const seed = randomUUID().slice(0, 8);
       await clearTeams(c, draftId);
       await setStatusAndSeed(c, draftId, "finished", seed);
-      await bumpGeneration(c, draftId);
-      await setLastDraftRosterVersion(c, draftId, draft.roster_version);
 
       // Determine bench (odd => last joined goes to BENCH).
       const benchIds: string[] = [];
@@ -209,6 +205,14 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
         benchIds.push(last.id);
         mainSlots = slots.slice(0, -1);
       }
+
+      const newActiveSig = activeSigFromUserIds(mainSlots.map((s) => s.user_id));
+      const shouldReset = draft.last_active_sig !== "" && draft.last_active_sig !== newActiveSig;
+      if (shouldReset) {
+        await setGenerationCount(c, draftId, 0);
+      }
+      await bumpGeneration(c, draftId);
+      await setLastActiveSig(c, draftId, newActiveSig);
 
       const order = shuffledIndices(mainSlots.length, seed);
       const shuffled = order.map((i) => mainSlots[i]);
@@ -248,3 +252,7 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
 
 void client.login(ENV.DISCORD_TOKEN);
 
+function activeSigFromUserIds(ids: string[]): string {
+  // Multiset signature of the active roster (keeps duplicates): sort and join.
+  return ids.slice().sort().join(",");
+}

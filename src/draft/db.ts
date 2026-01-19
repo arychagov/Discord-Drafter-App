@@ -14,6 +14,7 @@ export type DraftRow = {
   generation_count: number;
   roster_version: number;
   last_draft_roster_version: number;
+  last_active_sig: string;
 };
 
 export type DraftSlotRow = {
@@ -50,7 +51,7 @@ export async function createDraft(
 export async function lockDraft(c: PoolClient, draftId: string): Promise<DraftRow | null> {
   const res = await c.query<DraftRow>(
     `SELECT id, guild_id, channel_id, owner_id, title, status, seed, generation_count,
-            roster_version, last_draft_roster_version
+            roster_version, last_draft_roster_version, last_active_sig
      FROM drafts
      WHERE id = $1
      FOR UPDATE`,
@@ -62,12 +63,38 @@ export async function lockDraft(c: PoolClient, draftId: string): Promise<DraftRo
 export async function getDraft(c: PoolClient, draftId: string): Promise<DraftRow | null> {
   const res = await c.query<DraftRow>(
     `SELECT id, guild_id, channel_id, owner_id, title, status, seed, generation_count,
-            roster_version, last_draft_roster_version
+            roster_version, last_draft_roster_version, last_active_sig
      FROM drafts
      WHERE id = $1`,
     [draftId]
   );
   return res.rows[0] ?? null;
+}
+
+export async function setLastActiveSig(
+  c: PoolClient,
+  draftId: string,
+  sig: string
+): Promise<void> {
+  await c.query(
+    `UPDATE drafts
+     SET last_active_sig = $2, updated_at = NOW()
+     WHERE id = $1`,
+    [draftId, sig]
+  );
+}
+
+export async function setGenerationCount(
+  c: PoolClient,
+  draftId: string,
+  n: number
+): Promise<void> {
+  await c.query(
+    `UPDATE drafts
+     SET generation_count = $2, updated_at = NOW()
+     WHERE id = $1`,
+    [draftId, n]
+  );
 }
 
 export async function bumpRosterVersion(c: PoolClient, draftId: string): Promise<void> {

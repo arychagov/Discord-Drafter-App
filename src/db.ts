@@ -44,6 +44,7 @@ export async function initSchema(): Promise<void> {
       generation_count INTEGER NOT NULL DEFAULT 0,
       roster_version INTEGER NOT NULL DEFAULT 0,
       last_draft_roster_version INTEGER NOT NULL DEFAULT 0,
+      last_active_sig TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -68,5 +69,6 @@ export async function initSchema(): Promise<void> {
   await p.query(
     `ALTER TABLE drafts ADD COLUMN IF NOT EXISTS last_draft_roster_version INTEGER NOT NULL DEFAULT 0;`
   );
+  await p.query(`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS last_active_sig TEXT NOT NULL DEFAULT '';`);
 }
 
