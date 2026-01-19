@@ -33,6 +33,7 @@ npm install
 3) Зарегистрировать slash-команды:
 
 ```bash
+npm run build
 npm run register
 ```
 
@@ -66,6 +67,7 @@ docker-compose logs -f
 Slash-команды (пере)регистрировать при изменениях команд:
 
 ```bash
+docker-compose up -d --build
 docker-compose run --rm bot npm run register
 ```
 
