@@ -5,9 +5,9 @@ import {
   EmbedBuilder,
 } from "discord.js";
 import { ENV } from "../env";
-import { DraftStateV1 } from "./types";
+import { DraftView } from "./db";
 
-export const BUTTON_PREFIX = "draft:v1";
+export const BUTTON_PREFIX = "draft:v2";
 
 export type DraftAction = "join" | "leave" | "finish" | "stop";
 
@@ -29,84 +29,67 @@ export function parseButtonCustomId(
   return { draftId, action };
 }
 
-export function renderEmbed(state: DraftStateV1): EmbedBuilder {
+export function renderEmbed(view: DraftView): EmbedBuilder {
+  const { draft } = view;
   const embed = new EmbedBuilder()
-    .setTitle(state.title || "Draft")
-    .setFooter({ text: `драфт ${state.id}` });
+    .setTitle(draft.title || "Draft")
+    .setFooter({ text: `драфт ${draft.id}${draft.seed ? ` • seed ${draft.seed}` : ""}` });
 
-  if (state.status === "collecting") {
-    embed.setDescription(renderPlayersBlock(state.players));
-    embed.addFields([{ name: "Игроки", value: `${state.players.length}`, inline: true }]);
+  if (draft.status === "collecting") {
+    embed.setDescription(renderPlayersBlock(view.players));
+    embed.addFields([{ name: "Игроки", value: `${view.players.length}`, inline: true }]);
     embed.setColor(0x3498db);
     return embed;
   }
 
-  if (state.status === "finished" || (state.status === "stopped" && state.result)) {
-    const a = state.result?.teamA ?? [];
-    const b = state.result?.teamB ?? [];
-    const bench = deriveBench(state);
-    const roster = [...state.players, ...bench];
-
-    // Keep ordinal numbers consistent across Команда A / Команда B / На замену.
+  // finished or stopped: show teams if present
+  if (view.teamA.length || view.teamB.length || view.bench.length) {
+    const roster = [...view.teamA, ...view.teamB, ...view.bench];
     const ord = ENV.ALLOW_DUPLICATE_JOIN ? buildOrdinalQueues(roster) : null;
 
-    embed.setColor(state.status === "stopped" ? 0x95a5a6 : 0x2ecc71);
+    embed.setColor(draft.status === "stopped" ? 0x95a5a6 : 0x2ecc71);
     embed.addFields([
-      { name: `Команда A (${a.length})`, value: renderMentionsOrDash(a, ord) },
-      { name: `Команда B (${b.length})`, value: renderMentionsOrDash(b, ord) },
+      { name: `Команда A (${view.teamA.length})`, value: renderMentionsOrDash(view.teamA, ord) },
+      { name: `Команда B (${view.teamB.length})`, value: renderMentionsOrDash(view.teamB, ord) },
     ]);
-
-    if (bench.length > 0) {
+    if (view.bench.length) {
       embed.addFields([
-        { name: `На замену (${bench.length})`, value: renderMentionsOrDash(bench, ord) },
+        { name: `На замену (${view.bench.length})`, value: renderMentionsOrDash(view.bench, ord) },
       ]);
     }
-
-    if (state.result?.seed) {
-      embed.setFooter({
-        text: `драфт ${state.id} • seed ${state.result.seed}`,
-      });
-    }
-
-    if (state.status === "stopped") {
-      embed.setDescription("Драфт завершён.");
-    }
-
+    if (draft.status === "stopped") embed.setDescription("Драфт завершён.");
     return embed;
   }
 
-  // stopped before drafting (no result)
-  const roster = [...state.players, ...(state.pending ?? [])];
+  // stopped without teams
   embed.setColor(0x95a5a6);
   embed.setDescription("Драфт завершён.");
-  embed.addFields([{ name: `Игроки (${roster.length})`, value: renderPlayersBlock(roster) }]);
+  embed.addFields([{ name: `Игроки (${view.players.length})`, value: renderPlayersBlock(view.players) }]);
   return embed;
 }
 
-export function renderComponents(
-  state: DraftStateV1
-): ActionRowBuilder<ButtonBuilder>[] {
+export function renderComponents(view: DraftView): ActionRowBuilder<ButtonBuilder>[] {
   const join = new ButtonBuilder()
-    .setCustomId(buttonCustomId(state.id, "join"))
+    .setCustomId(buttonCustomId(view.draft.id, "join"))
     .setStyle(ButtonStyle.Success)
     .setLabel("+");
 
   const leave = new ButtonBuilder()
-    .setCustomId(buttonCustomId(state.id, "leave"))
+    .setCustomId(buttonCustomId(view.draft.id, "leave"))
     .setStyle(ButtonStyle.Secondary)
     .setLabel("-");
 
   const finish = new ButtonBuilder()
-    .setCustomId(buttonCustomId(state.id, "finish"))
+    .setCustomId(buttonCustomId(view.draft.id, "finish"))
     .setStyle(ButtonStyle.Success)
     .setLabel("Draft!");
 
   const stop = new ButtonBuilder()
-    .setCustomId(buttonCustomId(state.id, "stop"))
+    .setCustomId(buttonCustomId(view.draft.id, "stop"))
     .setStyle(ButtonStyle.Danger)
     .setLabel("Завершить");
 
-  if (state.status === "stopped") {
+  if (view.draft.status === "stopped") {
     join.setDisabled(true);
     leave.setDisabled(true);
     finish.setDisabled(true);
@@ -136,10 +119,8 @@ function truncateLines(s: string, maxLen: number): string {
 type OrdinalQueues = Map<string, number[]>;
 
 function buildOrdinalQueues(ids: string[]): OrdinalQueues {
-  // Keep ordinal numbers only for users with duplicates.
   const counts = new Map<string, number>();
   for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
-
   const q: OrdinalQueues = new Map();
   for (const [id, c] of counts.entries()) {
     if (c > 1) q.set(id, Array.from({ length: c }, (_, i) => i + 1));
@@ -149,20 +130,11 @@ function buildOrdinalQueues(ids: string[]): OrdinalQueues {
 
 function formatMentions(ids: string[], ord: OrdinalQueues | null): string[] {
   if (!ord || ord.size === 0) return ids.map((id) => `<@${id}>`);
-
-  // Consume from the provided queues so numbering stays consistent across sections.
   return ids.map((id) => {
     const arr = ord.get(id);
     if (!arr || arr.length === 0) return `<@${id}>`;
     const n = arr.shift()!;
     return `<@${id}> #${n}`;
   });
-}
-
-function deriveBench(state: DraftStateV1): string[] {
-  const pending = state.pending ?? [];
-  const legacy = state.result?.substitute ?? [];
-  if (legacy.length === 0) return pending;
-  return [...pending, ...legacy.filter((id) => !pending.includes(id))];
 }
 

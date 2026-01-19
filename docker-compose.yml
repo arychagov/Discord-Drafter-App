@@ -1,10 +1,25 @@
 version: "3.9"
 
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: drafter
+    volumes:
+      - drafter_pg:/var/lib/postgresql/data
+
   bot:
     build: .
     container_name: discord-drafter
     restart: unless-stopped
     env_file:
       - .env
+    depends_on:
+      - db
+
+volumes:
+  drafter_pg:
 

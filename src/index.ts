@@ -7,10 +7,23 @@ import {
 } from "discord.js";
 import { randomUUID } from "crypto";
 import { ENV } from "./env";
-import { newDraftId, shuffledTeams, upsertDraftStateBlock } from "./draft/state";
-import { DraftStateV1 } from "./draft/types";
+import { initSchema, withTx } from "./db";
+import {
+  addSlot,
+  clearTeams,
+  createDraft,
+  getDraftView,
+  getSlotsOrdered,
+  getTeamCounts,
+  lockDraft,
+  removeOneSlotPreferTeam,
+  setNullTeamForNotIn,
+  setStatusAndSeed,
+  setTeamForIds,
+  userHasAnySlot,
+} from "./draft/db";
 import { parseButtonCustomId, renderComponents, renderEmbed } from "./draft/render";
-import { withDraftMessageLock } from "./draft/sync";
+import { shuffledIndices } from "./draft/random";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -18,6 +31,10 @@ const client = new Client({
 
 client.once("ready", () => {
   console.log(`Logged in as ${client.user?.tag}`);
+});
+
+client.once("ready", async () => {
+  await initSchema();
 });
 
 client.on("interactionCreate", async (interaction: Interaction) => {
@@ -68,14 +85,6 @@ function hintFromDiscordError(e: any): string | null {
   return null;
 }
 
-function removeOneOccurrence(arr: string[], id: string): string[] {
-  const idx = arr.lastIndexOf(id);
-  if (idx === -1) return arr;
-  const next = [...arr];
-  next.splice(idx, 1);
-  return next;
-}
-
 async function handleStart(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild()) {
     await interaction.reply({ content: "Используй команду на сервере.", ephemeral: true });
@@ -84,36 +93,37 @@ async function handleStart(interaction: ChatInputCommandInteraction): Promise<vo
 
   const titleRaw = interaction.options.getString("title");
   const title = (titleRaw?.trim() || "Draft").slice(0, 80);
-  const id = newDraftId();
 
-  const state: DraftStateV1 = {
-    v: 1,
-    id,
-    rev: 0,
-    guildId: interaction.guildId!,
-    channelId: interaction.channelId!,
-    messageId: "pending",
-    ownerId: interaction.user.id,
-    title,
-    status: "collecting",
-    players: [],
-  };
-
-  const content = upsertDraftStateBlock("", state);
-
+  // Step 1: post placeholder message to obtain message.id (we use it as draft id).
   await interaction.reply({
-    content,
-    embeds: [renderEmbed(state)],
-    components: renderComponents(state),
+    content: "Создаю драфт…",
     fetchReply: true,
   });
-
   const msg = await interaction.fetchReply();
-  const finalState: DraftStateV1 = { ...state, messageId: msg.id };
+  const draftId = msg.id;
+
+  // Step 2: create draft in DB.
+  await withTx(async (c) => {
+    await createDraft(c, {
+      id: draftId,
+      guildId: interaction.guildId!,
+      channelId: interaction.channelId!,
+      ownerId: interaction.user.id,
+      title,
+    });
+  });
+
+  // Step 3: render from DB.
+  const view = await withTx(async (c) => {
+    const v = await getDraftView(c, draftId);
+    if (!v) throw new Error("Draft not found right after creation.");
+    return v;
+  });
+
   await interaction.editReply({
-    content: upsertDraftStateBlock(content, finalState),
-    embeds: [renderEmbed(finalState)],
-    components: renderComponents(finalState),
+    content: "",
+    embeds: [renderEmbed(view)],
+    components: renderComponents(view),
   });
 }
 
@@ -126,126 +136,101 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
   const parsed = parseButtonCustomId(interaction.customId);
   if (!parsed) return;
 
-  await withDraftMessageLock(interaction, (locked) => {
-    if (locked.id !== parsed.draftId) {
-      return { nextState: locked, note: "Эта кнопка не относится к этому драфту." };
-    }
+  await interaction.deferUpdate();
 
-    const userId = interaction.user.id;
-    const legacySub = locked.result?.substitute ?? [];
-    const pendingRaw = locked.pending ?? [];
-    const bench = [...pendingRaw, ...legacySub.filter((id) => !pendingRaw.includes(id))];
+  const draftId = parsed.draftId;
+  const userId = interaction.user.id;
 
-    if (locked.status === "stopped") {
-      return { nextState: locked, note: "Драфт завершён." };
-    }
+  const error = await withTx(async (c) => {
+    const draft = await lockDraft(c, draftId);
+    if (!draft) return "Драфт не найден.";
+    if (draft.guild_id !== interaction.guildId) return "Драфт не найден.";
+
+    if (draft.status === "stopped") return "Драфт завершён.";
 
     if (parsed.action === "join") {
-      if (locked.status === "collecting") {
-        if (!ENV.ALLOW_DUPLICATE_JOIN && locked.players.includes(userId)) {
-          return { nextState: locked, note: "Ты уже в списке." };
-        }
-        return { nextState: { ...locked, players: [...locked.players, userId] } };
+      if (!ENV.ALLOW_DUPLICATE_JOIN) {
+        const already = await userHasAnySlot(c, draftId, userId);
+        if (already) return "Ты уже в списке.";
       }
 
-      // finished: if teams are imbalanced, add directly to the team that lacks players.
-      // Otherwise, add to bench ("На замену").
-      const res = locked.result;
-      if (!res) return { nextState: locked, note: "Нет результата драфта." };
-
-      const rosterNow = [...res.teamA, ...res.teamB, ...bench];
-      if (!ENV.ALLOW_DUPLICATE_JOIN && rosterNow.includes(userId)) {
-        return { nextState: locked, note: "Ты уже в списке." };
+      if (draft.status === "collecting") {
+        await addSlot(c, draftId, userId, null);
+        return null;
       }
 
-      let nextTeamA = [...res.teamA];
-      let nextTeamB = [...res.teamB];
-      let nextBench = [...bench];
-
-      if (nextTeamA.length < nextTeamB.length) nextTeamA.push(userId);
-      else if (nextTeamB.length < nextTeamA.length) nextTeamB.push(userId);
-      else nextBench.push(userId);
-
-      return {
-        nextState: {
-          ...locked,
-          // keep status finished and keep existing teams; just extend
-          players: [...nextTeamA, ...nextTeamB],
-          pending: nextBench,
-          result: { ...res, teamA: nextTeamA, teamB: nextTeamB, substitute: undefined },
-        },
-      };
+      // finished: add directly to smaller team; if equal -> BENCH
+      const { a, b } = await getTeamCounts(c, draftId);
+      const team = a < b ? "A" : b < a ? "B" : "BENCH";
+      await addSlot(c, draftId, userId, team);
+      return null;
     }
 
     if (parsed.action === "leave") {
-      if (locked.status === "collecting") {
-        const idx = locked.players.lastIndexOf(userId);
-        if (idx === -1) return { nextState: locked, note: "Тебя нет в списке." };
-        const nextPlayers = [...locked.players];
-        nextPlayers.splice(idx, 1); // remove one "slot"
-        return { nextState: { ...locked, players: nextPlayers } };
-      }
-
-      // finished: do NOT restart drafting. Keep teams as-is (may become imbalanced).
-      const res = locked.result;
-      if (!res) return { nextState: locked, note: "Нет результата драфта." };
-
-      const nextTeamA = removeOneOccurrence(res.teamA, userId);
-      const nextTeamB = removeOneOccurrence(res.teamB, userId);
-      const removedFromTeams =
-        nextTeamA.length !== res.teamA.length || nextTeamB.length !== res.teamB.length;
-
-      let nextBench = [...bench];
-      if (!removedFromTeams) {
-        const removedBench = removeOneOccurrence(nextBench, userId);
-        if (removedBench.length === nextBench.length) {
-          return { nextState: locked, note: "Тебя нет в списке." };
-        }
-        nextBench = removedBench;
-      }
-
-      return {
-        nextState: {
-          ...locked,
-          players: [...nextTeamA, ...nextTeamB],
-          pending: nextBench,
-          result: { ...res, teamA: nextTeamA, teamB: nextTeamB, substitute: undefined },
-        },
-      };
+      const removed = await removeOneSlotPreferTeam(c, draftId, userId);
+      if (!removed) return "Тебя нет в списке.";
+      return null;
     }
 
     // owner-only actions
-    if (locked.ownerId !== userId) {
-      return { nextState: locked, note: "Только создатель драфта может это делать." };
+    if (draft.owner_id !== userId) return "Только создатель драфта может это делать.";
+
+    if (parsed.action === "stop") {
+      await setStatusAndSeed(c, draftId, "stopped", draft.seed);
+      return null;
     }
 
     if (parsed.action === "finish") {
-      // Draft! works both for initial drafting and re-drafting (instead of Shuffle).
-      const roster = locked.status === "finished" ? [...locked.players, ...bench] : [...locked.players];
-      if (roster.length < 2) return { nextState: locked, note: "Нужно минимум 2 игрока." };
+      // Draft! re-drafts every time.
+      const slots = await getSlotsOrdered(c, draftId);
+      if (slots.length < 2) return "Нужно минимум 2 игрока.";
+
       const seed = randomUUID().slice(0, 8);
-      const { teamA, teamB, bench: nextBench } = shuffledTeams(roster, seed);
-      return {
-        nextState: {
-          ...locked,
-          status: "finished",
-          players: roster.slice(0, nextBench?.length ? -nextBench.length : roster.length),
-          pending: nextBench ?? [],
-          result: { seed, teamA, teamB },
-        },
-      };
+      await clearTeams(c, draftId);
+      await setStatusAndSeed(c, draftId, "finished", seed);
+
+      // Determine bench (odd => last joined goes to BENCH).
+      const benchIds: string[] = [];
+      let mainSlots = slots;
+      if (slots.length % 2 === 1) {
+        const last = slots[slots.length - 1];
+        benchIds.push(last.id);
+        mainSlots = slots.slice(0, -1);
+      }
+
+      const order = shuffledIndices(mainSlots.length, seed);
+      const shuffled = order.map((i) => mainSlots[i]);
+      const mid = Math.floor(shuffled.length / 2);
+      const aIds = shuffled.slice(0, mid).map((s) => s.id);
+      const bIds = shuffled.slice(mid).map((s) => s.id);
+
+      await setTeamForIds(c, draftId, "A", aIds);
+      await setTeamForIds(c, draftId, "B", bIds);
+      await setTeamForIds(c, draftId, "BENCH", benchIds);
+
+      // ensure any non-mentioned slots (shouldn't happen) are NULL
+      await setNullTeamForNotIn(c, draftId, [...aIds, ...bIds, ...benchIds]);
+      return null;
     }
 
-    if (parsed.action === "stop") {
-      return {
-        nextState: {
-          ...locked,
-          status: "stopped",
-        },
-      };
-    }
+    return "Неизвестное действие.";
+  });
 
-    return { nextState: locked };
+  if (error) {
+    await interaction.followUp({ content: error, ephemeral: true });
+    return;
+  }
+
+  const view = await withTx(async (c) => await getDraftView(c, draftId));
+  if (!view) {
+    await interaction.followUp({ content: "Драфт не найден.", ephemeral: true });
+    return;
+  }
+
+  await interaction.message.edit({
+    embeds: [renderEmbed(view)],
+    components: renderComponents(view),
+    content: "",
   });
 }
 

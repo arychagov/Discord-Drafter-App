@@ -29,6 +29,7 @@ npm install
 - `DISCORD_TOKEN`
 - `DISCORD_CLIENT_ID`
 - (опционально) `DISCORD_GUILD_ID` — для dev-регистрации команд только в одном сервере (быстро обновляется)
+- `DATABASE_URL` — строка подключения к Postgres (в docker-compose по умолчанию уже подходит из `env.example`)
 
 3) Зарегистрировать slash-команды:
 

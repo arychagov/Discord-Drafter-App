@@ -13,5 +13,6 @@ export const ENV = {
   DISCORD_CLIENT_ID: required("DISCORD_CLIENT_ID"),
   DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
   ALLOW_DUPLICATE_JOIN: process.env.ALLOW_DUPLICATE_JOIN === "true",
+  DATABASE_URL: process.env.DATABASE_URL,
 };
 
