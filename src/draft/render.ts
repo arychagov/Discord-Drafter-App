@@ -54,12 +54,12 @@ export function renderEmbed(view: DraftView): EmbedBuilder {
 
     embed.setColor(draft.status === "stopped" ? 0x95a5a6 : 0x2ecc71);
     embed.addFields([
-      { name: `Команда A`, value: renderMentionsOrDash(view.teamA, ord) },
-      { name: `Команда B`, value: renderMentionsOrDash(view.teamB, ord) },
+      { name: `**Команда A**`, value: renderMentionsOrDash(view.teamA, ord) },
+      { name: `**Команда B**`, value: renderMentionsOrDash(view.teamB, ord) },
     ]);
     if (view.bench.length) {
       embed.addFields([
-        { name: `На замену (${view.bench.length})`, value: renderMentionsOrDash(view.bench, ord) },
+        { name: `**Скамейка запасных**`, value: renderMentionsOrDash(view.bench, ord) },
       ]);
     }
     if (draft.status === "stopped") embed.setDescription("Драфт завершён.");
