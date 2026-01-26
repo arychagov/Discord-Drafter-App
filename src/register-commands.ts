@@ -9,10 +9,10 @@ const commands = [
       opt.setName("title").setDescription("Название драфта").setRequired(false)
     ),
   new SlashCommandBuilder()
-    .setName("draft_help")
+    .setName("help")
     .setDescription("Показать справку по /draft"),
   new SlashCommandBuilder()
-    .setName("draft_remove")
+    .setName("remove")
     .setDescription("Удалить участника из существующего драфта (только создатель драфта)")
     .addStringOption((opt) =>
       opt

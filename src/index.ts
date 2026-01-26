@@ -60,11 +60,11 @@ client.on("interactionCreate", async (interaction: Interaction) => {
         await handleStart(interaction);
         return;
       }
-      if (interaction.commandName === "draft_help") {
+      if (interaction.commandName === "help") {
         await handleHelp(interaction);
         return;
       }
-      if (interaction.commandName === "draft_remove") {
+      if (interaction.commandName === "remove") {
         await handleRemove(interaction);
         return;
       }
@@ -177,12 +177,12 @@ async function handleHelp(interaction: ChatInputCommandInteraction): Promise<voi
     "Создатель драфта нажимает `Завершить`.\n" +
     "Все кнопки отключаются, а результат остаётся видимым в сообщении.\n\n" +
     "**6) Удалить участника (только создатель)**\n" +
-    "Команда: `/draft_remove draft_id user`\n" +
+    "Команда: `/remove draft_id user`\n" +
     "- `draft_id` — ID сообщения драфта или ссылка на сообщение драфта\n" +
     "- `user` — кого удалить\n\n" +
     "**Примечания**\n" +
     "`Draft!` и `Завершить` доступны только создателю драфта.\n" +
-    "`/draft_remove` тоже доступна только создателю драфта.\n" +
+    "`/remove` тоже доступна только создателю драфта.\n" +
     "Если бот не отвечает, происходит какая-то рандомная хуйня - пиши @Wealduun.";
 
   await interaction.reply({ content, ephemeral: true });
