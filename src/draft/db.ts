@@ -173,6 +173,23 @@ export async function removeOneSlotPreferTeam(
   return { removed: false, removedTeam: null };
 }
 
+export async function removeAllSlotsForUser(
+  c: PoolClient,
+  draftId: string,
+  userId: string
+): Promise<{ removed: number }> {
+  const res = await c.query(
+    `DELETE FROM draft_slots
+     WHERE draft_id = $1 AND user_id = $2`,
+    [draftId, userId]
+  );
+  const removed = res.rowCount ?? 0;
+  if (removed > 0) {
+    await bumpRosterVersion(c, draftId);
+  }
+  return { removed };
+}
+
 export async function getTeamCounts(
   c: PoolClient,
   draftId: string

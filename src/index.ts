@@ -18,6 +18,7 @@ import {
   getSlotsOrdered,
   getTeamCounts,
   lockDraft,
+  removeAllSlotsForUser,
   removeOneSlotPreferTeam,
   setNullTeamForNotIn,
   setStatusAndSeed,
@@ -61,6 +62,10 @@ client.on("interactionCreate", async (interaction: Interaction) => {
       }
       if (interaction.commandName === "draft_help") {
         await handleHelp(interaction);
+        return;
+      }
+      if (interaction.commandName === "draft_remove") {
+        await handleRemove(interaction);
         return;
       }
       return;
@@ -171,11 +176,86 @@ async function handleHelp(interaction: ChatInputCommandInteraction): Promise<voi
     "**5) Завершить драфт**\n" +
     "Создатель драфта нажимает `Завершить`.\n" +
     "Все кнопки отключаются, а результат остаётся видимым в сообщении.\n\n" +
+    "**6) Удалить участника (только создатель)**\n" +
+    "Команда: `/draft_remove draft_id user`\n" +
+    "- `draft_id` — ID сообщения драфта или ссылка на сообщение драфта\n" +
+    "- `user` — кого удалить\n\n" +
     "**Примечания**\n" +
     "`Draft!` и `Завершить` доступны только создателю драфта.\n" +
+    "`/draft_remove` тоже доступна только создателю драфта.\n" +
     "Если бот не отвечает, происходит какая-то рандомная хуйня - пиши @Wealduun.";
 
   await interaction.reply({ content, ephemeral: true });
+}
+
+async function handleRemove(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.reply({ content: "Используй команду на сервере.", ephemeral: true });
+    return;
+  }
+
+  const draftIdRaw = interaction.options.getString("draft_id", true);
+  const target = interaction.options.getUser("user", true);
+  const draftId = parseDraftId(draftIdRaw);
+  if (!draftId) {
+    await interaction.reply({
+      content: "Не понял `draft_id`. Пришли ID сообщения драфта или ссылку на сообщение.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const txRes = await withTx(async (c) => {
+    const draft = await lockDraft(c, draftId);
+    if (!draft) return { error: "Драфт не найден." as const };
+    if (draft.guild_id !== interaction.guildId) return { error: "Драфт не найден." as const };
+    if (draft.owner_id !== interaction.user.id) {
+      return { error: "Только создатель драфта может удалять участников." as const };
+    }
+    if (draft.status === "stopped") return { error: "Драфт завершён." as const };
+
+    const { removed } = await removeAllSlotsForUser(c, draftId, target.id);
+    if (removed === 0) return { error: "Этого пользователя нет в драфте." as const };
+
+    const view = await getDraftView(c, draftId);
+    if (!view) return { error: "Драфт не найден." as const };
+    // Need channel id for message edit
+    return { view, channelId: draft.channel_id, removed } as const;
+  });
+
+  if ("error" in txRes) {
+    await interaction.editReply({ content: txRes.error });
+    return;
+  }
+
+  try {
+    const ch = await interaction.client.channels.fetch(txRes.channelId);
+    if (!ch || typeof (ch as any).isTextBased !== "function" || !(ch as any).isTextBased()) {
+      await interaction.editReply({
+        content: "Не смог найти канал драфта, чтобы обновить сообщение.",
+      });
+      return;
+    }
+    const msg = await (ch as any).messages.fetch(draftId);
+    await msg.edit({
+      embeds: [renderEmbed(txRes.view)],
+      components: renderComponents(txRes.view),
+      content: "",
+    });
+  } catch (e) {
+    console.error(e);
+    await interaction.editReply({
+      content:
+        "Удалил пользователя из драфта в базе, но не смог обновить сообщение (проверь права бота/доступ к каналу).",
+    });
+    return;
+  }
+
+  await interaction.editReply({
+    content: `Удалил <@${target.id}> из драфта \`${draftId}\`.`,
+  });
 }
 
 async function handleButton(interaction: ButtonInteraction): Promise<void> {
@@ -320,4 +400,15 @@ void client.login(ENV.DISCORD_TOKEN);
 function activeSigFromUserIds(ids: string[]): string {
   // Multiset signature of the active roster (keeps duplicates): sort and join.
   return ids.slice().sort().join(",");
+}
+
+function parseDraftId(input: string): string | null {
+  const s = input.trim();
+  if (/^\d{16,30}$/.test(s)) return s;
+  // message link format: https://discord.com/channels/<guild>/<channel>/<message>
+  const m = s.match(/\/channels\/\d+\/\d+\/(\d{16,30})/);
+  if (m?.[1]) return m[1];
+  // fallback: last long number in the string
+  const m2 = s.match(/(\d{16,30})(?!.*\d{16,30})/);
+  return m2?.[1] ?? null;
 }

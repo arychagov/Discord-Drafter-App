@@ -31,13 +31,18 @@ export function parseButtonCustomId(
 
 export function renderEmbed(view: DraftView): EmbedBuilder {
   const { draft } = view;
+
+  const statusText =
+    draft.status === "collecting"
+      ? "Собираем игроков"
+      : draft.status === "stopped"
+        ? "Драфт завершён"
+        : `# рандома: ${draft.generation_count}`;
+
   const embed = new EmbedBuilder()
     .setTitle(draft.title || "Собираем игру")
     .setFooter({
-      text:
-        draft.seed == null
-          ? "Собираем игроков"
-          : `# рандома: ${draft.generation_count}`,
+      text: `${statusText}\nid: ${draft.id}`,
     });
 
   if (draft.status === "collecting") {

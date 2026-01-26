@@ -11,6 +11,18 @@ const commands = [
   new SlashCommandBuilder()
     .setName("draft_help")
     .setDescription("Показать справку по /draft"),
+  new SlashCommandBuilder()
+    .setName("draft_remove")
+    .setDescription("Удалить участника из существующего драфта (только создатель драфта)")
+    .addStringOption((opt) =>
+      opt
+        .setName("draft_id")
+        .setDescription("ID сообщения драфта или ссылка на сообщение")
+        .setRequired(true)
+    )
+    .addUserOption((opt) =>
+      opt.setName("user").setDescription("Кого удалить из драфта").setRequired(true)
+    ),
 ].map((c) => c.toJSON());
 
 async function main() {
