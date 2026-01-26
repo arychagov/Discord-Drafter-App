@@ -23,6 +23,18 @@ const commands = [
     .addUserOption((opt) =>
       opt.setName("user").setDescription("Кого удалить из драфта").setRequired(true)
     ),
+  new SlashCommandBuilder()
+    .setName("rename")
+    .setDescription("Переименовать драфт (только создатель драфта)")
+    .addStringOption((opt) =>
+      opt
+        .setName("draft_id")
+        .setDescription("ID сообщения драфта или ссылка на сообщение")
+        .setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName("title").setDescription("Новое название драфта").setRequired(true)
+    ),
 ].map((c) => c.toJSON());
 
 async function main() {

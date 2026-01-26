@@ -223,6 +223,19 @@ export async function setStatusAndSeed(
   ]);
 }
 
+export async function setDraftTitle(
+  c: PoolClient,
+  draftId: string,
+  title: string
+): Promise<void> {
+  await c.query(
+    `UPDATE drafts
+     SET title = $2, updated_at = NOW()
+     WHERE id = $1`,
+    [draftId, title]
+  );
+}
+
 export async function deleteDraft(c: PoolClient, draftId: string): Promise<number> {
   const res = await c.query(`DELETE FROM drafts WHERE id = $1`, [draftId]);
   return res.rowCount ?? 0;

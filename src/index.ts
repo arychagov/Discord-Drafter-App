@@ -20,6 +20,7 @@ import {
   lockDraft,
   removeAllSlotsForUser,
   removeOneSlotPreferTeam,
+  setDraftTitle,
   setNullTeamForNotIn,
   setStatusAndSeed,
   setTeamForIds,
@@ -66,6 +67,10 @@ client.on("interactionCreate", async (interaction: Interaction) => {
       }
       if (interaction.commandName === "remove") {
         await handleRemove(interaction);
+        return;
+      }
+      if (interaction.commandName === "rename") {
+        await handleRename(interaction);
         return;
       }
       return;
@@ -180,9 +185,14 @@ async function handleHelp(interaction: ChatInputCommandInteraction): Promise<voi
     "Команда: `/remove draft_id user`\n" +
     "- `draft_id` — ID сообщения драфта или ссылка на сообщение драфта\n" +
     "- `user` — кого удалить\n\n" +
+    "**7) Переименовать драфт (только создатель)**\n" +
+    "Команда: `/rename draft_id title`\n" +
+    "- `draft_id` — ID сообщения драфта или ссылка на сообщение драфта\n" +
+    "- `title` — новое название\n\n" +
     "**Примечания**\n" +
     "`Draft!` и `Завершить` доступны только создателю драфта.\n" +
     "`/remove` тоже доступна только создателю драфта.\n" +
+    "`/rename` тоже доступна только создателю драфта.\n" +
     "Если бот не отвечает, происходит какая-то рандомная хуйня - пиши @Wealduun.";
 
   await interaction.reply({ content, ephemeral: true });
@@ -255,6 +265,80 @@ async function handleRemove(interaction: ChatInputCommandInteraction): Promise<v
 
   await interaction.editReply({
     content: `Удалил <@${target.id}> из драфта \`${draftId}\`.`,
+  });
+}
+
+async function handleRename(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.reply({ content: "Используй команду на сервере.", ephemeral: true });
+    return;
+  }
+
+  const draftIdRaw = interaction.options.getString("draft_id", true);
+  const titleRaw = interaction.options.getString("title", true);
+  const draftId = parseDraftId(draftIdRaw);
+  if (!draftId) {
+    await interaction.reply({
+      content: "Не понял `draft_id`. Пришли ID сообщения драфта или ссылку на сообщение.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const title = (titleRaw.trim() || "Draft").slice(0, 80);
+  if (!title) {
+    await interaction.reply({ content: "Название не должно быть пустым.", ephemeral: true });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const txRes = await withTx(async (c) => {
+    const draft = await lockDraft(c, draftId);
+    if (!draft) return { error: "Драфт не найден." as const };
+    if (draft.guild_id !== interaction.guildId) return { error: "Драфт не найден." as const };
+    if (draft.owner_id !== interaction.user.id) {
+      return { error: "Только создатель драфта может переименовывать драфт." as const };
+    }
+    if (draft.status === "stopped") return { error: "Драфт завершён." as const };
+
+    await setDraftTitle(c, draftId, title);
+    const view = await getDraftView(c, draftId);
+    if (!view) return { error: "Драфт не найден." as const };
+
+    return { view, channelId: draft.channel_id } as const;
+  });
+
+  if ("error" in txRes) {
+    await interaction.editReply({ content: txRes.error });
+    return;
+  }
+
+  try {
+    const ch = await interaction.client.channels.fetch(txRes.channelId);
+    if (!ch || typeof (ch as any).isTextBased !== "function" || !(ch as any).isTextBased()) {
+      await interaction.editReply({
+        content: "Не смог найти канал драфта, чтобы обновить сообщение.",
+      });
+      return;
+    }
+    const msg = await (ch as any).messages.fetch(draftId);
+    await msg.edit({
+      embeds: [renderEmbed(txRes.view)],
+      components: renderComponents(txRes.view),
+      content: "",
+    });
+  } catch (e) {
+    console.error(e);
+    await interaction.editReply({
+      content:
+        "Переименовал драфт в базе, но не смог обновить сообщение (проверь права бота/доступ к каналу).",
+    });
+    return;
+  }
+
+  await interaction.editReply({
+    content: `Переименовал драфт \`${draftId}\` → **${title}**.`,
   });
 }
 
