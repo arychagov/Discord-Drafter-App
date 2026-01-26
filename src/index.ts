@@ -182,9 +182,10 @@ async function handleHelp(interaction: ChatInputCommandInteraction): Promise<voi
     "Создатель драфта нажимает `Завершить`.\n" +
     "Все кнопки отключаются, а результат остаётся видимым в сообщении.\n\n" +
     "**6) Удалить участника (только создатель)**\n" +
-    "Команда: `/remove draft_id user`\n" +
+    "Команда: `/remove draft_id user [user2..user5]`\n" +
     "- `draft_id` — ID сообщения драфта или ссылка на сообщение драфта\n" +
-    "- `user` — кого удалить\n\n" +
+    "- `user` — кого удалить\n" +
+    "- `user2..user5` — дополнительные игроки (опционально)\n\n" +
     "**7) Переименовать драфт (только создатель)**\n" +
     "Команда: `/rename draft_id title`\n" +
     "- `draft_id` — ID сообщения драфта или ссылка на сообщение драфта\n" +
@@ -205,7 +206,15 @@ async function handleRemove(interaction: ChatInputCommandInteraction): Promise<v
   }
 
   const draftIdRaw = interaction.options.getString("draft_id", true);
-  const target = interaction.options.getUser("user", true);
+  const u1 = interaction.options.getUser("user", true);
+  const u2 = interaction.options.getUser("user2");
+  const u3 = interaction.options.getUser("user3");
+  const u4 = interaction.options.getUser("user4");
+  const u5 = interaction.options.getUser("user5");
+
+  const targets = [u1, u2, u3, u4, u5].filter(Boolean) as { id: string }[];
+  const uniqTargets = Array.from(new Map(targets.map((u) => [u.id, u])).values());
+
   const draftId = parseDraftId(draftIdRaw);
   if (!draftId) {
     await interaction.reply({
@@ -226,13 +235,21 @@ async function handleRemove(interaction: ChatInputCommandInteraction): Promise<v
     }
     if (draft.status === "stopped") return { error: "Драфт завершён." as const };
 
-    const { removed } = await removeAllSlotsForUser(c, draftId, target.id);
-    if (removed === 0) return { error: "Этого пользователя нет в драфте." as const };
+    const removedIds: string[] = [];
+    const notFoundIds: string[] = [];
+    for (const t of uniqTargets) {
+      const { removed } = await removeAllSlotsForUser(c, draftId, t.id);
+      if (removed > 0) removedIds.push(t.id);
+      else notFoundIds.push(t.id);
+    }
+    if (removedIds.length === 0) {
+      return { error: "Указанных пользователей нет в драфте." as const };
+    }
 
     const view = await getDraftView(c, draftId);
     if (!view) return { error: "Драфт не найден." as const };
     // Need channel id for message edit
-    return { view, channelId: draft.channel_id, removed } as const;
+    return { view, channelId: draft.channel_id, removedIds, notFoundIds } as const;
   });
 
   if ("error" in txRes) {
@@ -263,9 +280,11 @@ async function handleRemove(interaction: ChatInputCommandInteraction): Promise<v
     return;
   }
 
-  await interaction.editReply({
-    content: `Удалил <@${target.id}> из драфта \`${draftId}\`.`,
-  });
+  const removedMentions = txRes.removedIds.map((id) => `<@${id}>`).join(", ");
+  const notFoundMentions = txRes.notFoundIds.map((id) => `<@${id}>`).join(", ");
+  const suffix = notFoundMentions ? `\nНе были в драфте: ${notFoundMentions}` : "";
+
+  await interaction.editReply({ content: `Удалил из драфта \`${draftId}\`: ${removedMentions}.${suffix}` });
 }
 
 async function handleRename(interaction: ChatInputCommandInteraction): Promise<void> {

@@ -22,6 +22,18 @@ const commands = [
     )
     .addUserOption((opt) =>
       opt.setName("user").setDescription("Кого удалить из драфта").setRequired(true)
+    )
+    .addUserOption((opt) =>
+      opt.setName("user2").setDescription("Доп. игрок для удаления (опционально)").setRequired(false)
+    )
+    .addUserOption((opt) =>
+      opt.setName("user3").setDescription("Доп. игрок для удаления (опционально)").setRequired(false)
+    )
+    .addUserOption((opt) =>
+      opt.setName("user4").setDescription("Доп. игрок для удаления (опционально)").setRequired(false)
+    )
+    .addUserOption((opt) =>
+      opt.setName("user5").setDescription("Доп. игрок для удаления (опционально)").setRequired(false)
     ),
   new SlashCommandBuilder()
     .setName("rename")
