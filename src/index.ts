@@ -432,9 +432,8 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       // Determine the new "active roster" (Team A ∪ Team B) signature AFTER this draft.
       // If it differs from the previous active roster signature, reset generation counter.
 
-      const seed = randomUUID().slice(0, 8);
       await clearTeams(c, draftId);
-      await setStatusAndSeed(c, draftId, "finished", seed);
+      await setStatusAndSeed(c, draftId, "finished", null);
 
       // Determine bench (odd => last joined goes to BENCH).
       const benchIds: string[] = [];
@@ -453,7 +452,7 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       await bumpGeneration(c, draftId);
       await setLastActiveSig(c, draftId, newActiveSig);
 
-      const order = shuffledIndices(mainSlots.length, seed);
+      const order = shuffledIndices(mainSlots.length);
       const shuffled = order.map((i) => mainSlots[i]);
       const mid = Math.floor(shuffled.length / 2);
       const aIds = shuffled.slice(0, mid).map((s) => s.id);
